@@ -1,0 +1,156 @@
+-- ============================================================
+--  Yousef|ESP (Standalone)
+-- ============================================================
+if _G["YOUSEF_ESP_LOADED"] then return end
+_G["YOUSEF_ESP_LOADED"] = true
+
+-- Services.
+local playersService = game:GetService("Players")
+local runService     = game:GetService("RunService")
+
+-- State.
+local localPlayer = playersService.LocalPlayer
+local currentCamera = workspace.CurrentCamera
+local espCache = {}
+local ESP_MAX_HEALTH = 150
+
+-- Settings (pwedeng baguhin ng aim assist via shared table).
+local espSettings = {
+    enabled = true,
+    maxHealth = 150,
+}
+
+---Gumawa ng ESP drawings para sa player.
+---@param player Player
+local function createEspDrawings(player)
+    if espCache[player] then return end
+
+    local box = Drawing.new("Square")
+    box.Thickness = 1.5
+    box.Filled = false
+    box.Color = Color3.fromRGB(255, 255, 255)
+    box.Visible = false
+
+    local healthBarBg = Drawing.new("Line")
+    healthBarBg.Thickness = 3
+    healthBarBg.Color = Color3.fromRGB(0, 0, 0)
+    healthBarBg.Visible = false
+
+    local healthBar = Drawing.new("Line")
+    healthBar.Thickness = 3
+    healthBar.Color = Color3.fromRGB(0, 255, 0)
+    healthBar.Visible = false
+
+    local healthText = Drawing.new("Text")
+    healthText.Size = 12
+    healthText.Center = true
+    healthText.Outline = true
+    healthText.OutlineColor = Color3.fromRGB(0, 0, 0)
+    healthText.Color = Color3.fromRGB(0, 255, 0)
+    healthText.Visible = false
+
+    espCache[player] = {
+        box = box,
+        healthBarBg = healthBarBg,
+        healthBar = healthBar,
+        healthText = healthText,
+    }
+end
+
+---Remove ESP drawings.
+---@param player Player
+local function removeEspDrawings(player)
+    local d = espCache[player]
+    if not d then return end
+    for _, obj in pairs(d) do obj:Remove() end
+    espCache[player] = nil
+end
+
+-- Player events.
+for _, player in ipairs(playersService:GetPlayers()) do
+    if player ~= localPlayer then createEspDrawings(player) end
+end
+
+playersService.PlayerAdded:Connect(function(player)
+    if player ~= localPlayer then createEspDrawings(player) end
+end)
+
+playersService.PlayerRemoving:Connect(removeEspDrawings)
+
+-- Render loop.
+runService.RenderStepped:Connect(function()
+    if not espSettings.enabled then
+        for _, d in pairs(espCache) do
+            d.box.Visible = false
+            d.healthBarBg.Visible = false
+            d.healthBar.Visible = false
+            d.healthText.Visible = false
+        end
+        return
+    end
+
+    for _, target in ipairs(playersService:GetPlayers()) do
+        if target == localPlayer then continue end
+        if not espCache[target] then createEspDrawings(target) end
+
+        local d = espCache[target]
+        local char = target.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        local head = char and char:FindFirstChild("Head")
+        local humanoid = char and char:FindFirstChild("Humanoid")
+
+        if not (root and head and humanoid) or humanoid.Health <= 0 then
+            d.box.Visible = false
+            d.healthBarBg.Visible = false
+            d.healthBar.Visible = false
+            d.healthText.Visible = false
+            continue
+        end
+
+        local topWorld = head.Position + Vector3.new(0, head.Size.Y / 2 + 0.1, 0)
+        local botWorld = root.Position - Vector3.new(0, 3.2, 0)
+        local topScreen, topVis = currentCamera:WorldToViewportPoint(topWorld)
+        local botScreen, botVis = currentCamera:WorldToViewportPoint(botWorld)
+
+        if not (topVis and botVis) then
+            d.box.Visible = false
+            d.healthBarBg.Visible = false
+            d.healthBar.Visible = false
+            d.healthText.Visible = false
+            continue
+        end
+
+        local height = botScreen.Y - topScreen.Y
+        local width = height * 0.45
+        local boxX = topScreen.X - width / 2
+        local boxY = topScreen.Y
+
+        d.box.Position = Vector2.new(boxX, boxY)
+        d.box.Size = Vector2.new(width, height)
+        d.box.Visible = true
+
+        local healthPercent = math.clamp(humanoid.Health / espSettings.maxHealth, 0, 1)
+        local barX = boxX - 6
+        local barBottom = boxY + height
+
+        d.healthBarBg.From = Vector2.new(barX, boxY)
+        d.healthBarBg.To = Vector2.new(barX, barBottom)
+        d.healthBarBg.Visible = true
+
+        d.healthBar.From = Vector2.new(barX, boxY + height * (1 - healthPercent))
+        d.healthBar.To = Vector2.new(barX, barBottom)
+        d.healthBar.Color = Color3.fromRGB(255 * (1 - healthPercent), 255 * healthPercent, 0)
+        d.healthBar.Visible = true
+
+        local hpCurrent = math.floor(humanoid.Health)
+        d.healthText.Text = hpCurrent .. "/" .. espSettings.maxHealth .. " (" .. math.floor(healthPercent * 100) .. "%)"
+        d.healthText.Position = Vector2.new(topScreen.X, boxY - 16)
+        d.healthText.Color = Color3.fromRGB(255 * (1 - healthPercent), 255 * healthPercent, 0)
+        d.healthText.Visible = true
+    end
+end)
+
+-- Ibunyag sa ibang script.
+_G["YOUSEF_ESP_SETTINGS"] = espSettings
+_G["YOUSEF_ESP_CACHE"] = espCache
+_G["YOUSEF_ESP_REMOVE"] = removeEspDrawings
